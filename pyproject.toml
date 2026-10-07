@@ -25,24 +25,8 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24.0",
-    "pooch>=1.7.0",
-    "scipy>=1.11.0",
-    "scikit-image>=0.21.0",
-    "tifffile>=2023.1.0",
-    "zarr>=3.0",
-    "h5py>=3.9.0",
-    "toolz>=0.11.0",
-    "dask[array]>=2022.3.0",
     "polars>=1.0.0",
-    "torch>=2.0.0",
-    "spatial-graph>=0.0.5",
-    "tracksdata>=0.1.0rc4",
-    "pydantic>=2.12.5",
-    "pyyaml>=6.0.3",
-    "typer>=0.21.1",
-    "rich>=14.3.1",
-    "gurobipy>12.0.1,<13.0.0",
-    "matplotlib>=3.10.8",
+    "tracksdata>=0.1.0rc11",
 ]
 
 [project.urls]
@@ -50,14 +34,36 @@ Homepage = "https://github.com/royerlab/hoct"
 Repository = "https://github.com/royerlab/hoct"
 
 [project.optional-dependencies]
-correction = [
-    "scikit-learn>=1.6.0",
+# Installable extras (dependency-groups are not included in wheel metadata).
+scoring = [
+    "torch>=2.0.0",
+    "pooch>=1.7.0",
+    "tqdm>=4.66.1",
 ]
+tracking = [
+    "hoct[scoring]",
+    "scipy>=1.11.0",
+    "scikit-image>=0.21.0",
+    "tifffile>=2023.1.0",
+    "zarr>=3.0",
+    "h5py>=3.9.0",
+    "toolz>=0.11.0",
+    "dask[array]>=2022.3.0",
+    "spatial-graph>=0.0.5",
+    "pydantic>=2.12.5",
+    "pyyaml>=6.0.3",
+    "typer>=0.21.1",
+    "rich>=14.3.1",
+    "gurobipy>12.0.1,<13.0.0",
+    "matplotlib>=3.10.8",
+]
+correction = ["hoct[scoring]"]
 bioio = [
     "bioio>=3.0",
     "bioio-tifffile>=1.0",
 ]
 dev = [
+    "hoct[tracking]",
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.1.0",

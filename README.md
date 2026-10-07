@@ -35,7 +35,7 @@ uv --version
 installed permanently and there is no virtual environment to manage:
 
 ```bash
-uvx --from "hoct[bioio]" hoct track \
+uvx --from "hoct[tracking,bioio]" hoct track \
     <IMAGES> <SEGMENTATION> \
     -o <OUTPUT.geff>
 ```
@@ -63,7 +63,7 @@ instantly.
 ### Example: a CTC dataset
 
 ```bash
-uvx --from "hoct[bioio]" hoct track \
+uvx --from "hoct[tracking,bioio]" hoct track \
     /data/Fluo-C3DL-MDA231/01 \
     /data/Fluo-C3DL-MDA231/01_ERR_SEG \
     -o tracks.geff
@@ -77,7 +77,7 @@ To benchmark against the Cell Tracking Challenge ground truth, write the
 result directly in CTC format:
 
 ```bash
-uvx --from "hoct[bioio]" hoct track \
+uvx --from "hoct[tracking,bioio]" hoct track \
     /data/Fluo-C3DL-MDA231/01 \
     /data/Fluo-C3DL-MDA231/01_ERR_SEG \
     -o /data/Fluo-C3DL-MDA231/01_RES \
@@ -105,7 +105,7 @@ This produces the standard CTC layout (`maskNNN.tif` per timepoint plus
 | `--window, -w` | `5` | Temporal window size used by the model |
 | `--config, -c` | none | Path to an ILP solver config YAML (see `init-config`) |
 
-Run `uvx --from "hoct[bioio]" hoct track --help` for
+Run `uvx --from "hoct[tracking,bioio]" hoct track --help` for
 the full list.
 
 ### Customising the solver
@@ -115,7 +115,7 @@ Generate a template config you can edit and pass with `-c`:
 ```bash
 uvx --from hoct hoct init-config -o solver_config.yaml
 # ...edit the file...
-uvx --from "hoct[bioio]" hoct track ... -c solver_config.yaml
+uvx --from "hoct[tracking,bioio]" hoct track ... -c solver_config.yaml
 ```
 
 ### Tracking from an existing GEFF
@@ -134,7 +134,7 @@ uvx --from hoct hoct predict candidate.geff -s -o tracks.geff
 ## Installation
 
 ```bash
-pip install "hoct[bioio]"
+pip install "hoct[tracking,bioio]"
 ```
 
 The `bioio` extra is needed for the `track` CLI (reading image/label files).
@@ -216,3 +216,29 @@ ruff check .
 # Format code
 ruff format .
 ```
+
+## Scoring and corrections without tracking
+
+Install `pip install "hoct[scoring]"` for model loading, input datasets, edge
+probabilities, and correction training. This extra excludes HOCT's ILP solver,
+CLI, plotting, and image I/O dependencies. Install `hoct[tracking]` for the
+complete tracking pipeline, or `hoct[tracking,bioio]` for additional image readers.
+
+```python
+from hoct import load_model
+from hoct.inference import predict_edge_scores
+from hoct.correction import fit_from_labels
+
+model = load_model()  # default pretrained model, cached after first download
+scores = predict_edge_scores(model, dataset)  # edge_id and similarity in [0, 1]
+model = fit_from_labels(
+    dataset.graph, model, "is_labeled", "is_correct",
+    dataset=dataset, consistency_weight=0.0,
+)
+```
+
+`dataset` is a prepared HOCT dataset backed by the candidate graph. Scoring
+aggregates overlapping windows and applies parental softmax normalization,
+including each target's orphan logit. It writes `similarity` and `orphan_prob`
+attributes without changing solution membership. Correction training accepts
+an existing dataset and fits only a linear probe on the frozen backbone.
