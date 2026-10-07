@@ -72,6 +72,8 @@ def item_from_filter(
     df_transforms: list[Callable[[pl.DataFrame], pl.DataFrame]],
     dict_transforms: list[Callable[[DataItem], DataItem]],
     extra_edge_attrs: list[str] = (),
+    *,
+    node_attrs: pl.DataFrame | None = None,
 ) -> DataItem:
     """Load an item from a spatial filter.
 
@@ -91,6 +93,9 @@ def item_from_filter(
         The extra edge attributes to load for additional edge attributes.
         IMPORTANT: This modifies the global variable _EDGE_KEYS to identify edge attributes.
 
+    node_attrs : pl.DataFrame | None
+        Optional prepared node table for this filter, in HOCT feature order.
+
     Returns
     -------
     DataItem
@@ -105,7 +110,8 @@ def item_from_filter(
     if "is_div" in sp_filter._graph.node_attr_keys():
         attrs.append("is_div")
 
-    node_attrs = sp_filter.node_attrs(attr_keys=attrs)
+    if node_attrs is None:
+        node_attrs = sp_filter.node_attrs(attr_keys=attrs)
     if "inertia_tensor" in node_attrs.columns:
         # FIXME: this might be unnecessary in the future
         node_attrs = node_attrs.with_columns(
