@@ -1,10 +1,12 @@
 """Model prediction and inference utilities for HOCT."""
 
+from __future__ import annotations
+
 import os
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, nullcontext
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 # this is to avoid OOM errors when using large tiling schemes
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"  # type: ignore
@@ -17,7 +19,9 @@ from tqdm import tqdm
 
 from hoct._logging import LOG
 from hoct.data import DataKeys, FrameDataset, TiledRoiDataset
-from hoct.tracking import ILPSolverConfig, solve_tracking
+
+if TYPE_CHECKING:
+    from hoct.tracking import ILPSolverConfig
 
 
 class ModelPrediction(NamedTuple):
@@ -235,6 +239,8 @@ def model_predict(
     solver_config: ILPSolverConfig | None = None,
     return_solution: bool = True,
     prefetch: bool | None = None,
+    *,
+    solve: bool = True,
 ) -> td.graph.InMemoryGraph | None:
     """
     Run model prediction on a dataset and solve tracking.
@@ -261,6 +267,9 @@ def model_predict(
         in a background thread while the model processes the current one. When
         ``None``, defaults to ``True`` for map-style ``Dataset`` inputs and
         ``False`` for ``DataLoader`` (which already prefetches via its own workers).
+
+    solve : bool, default=True
+        Run ILP tracking after scoring. False requires no solver dependencies.
 
     Notes
     -----
@@ -291,8 +300,11 @@ def model_predict(
     >>> model_predict(model, ds, solver_config=config)
     """
     LOG.info("Starting model prediction pipeline")
-    if solver_config is None:
-        solver_config = ILPSolverConfig.default()
+    if solve:
+        from hoct.tracking import ILPSolverConfig, solve_tracking
+
+        if solver_config is None:
+            solver_config = ILPSolverConfig.default()
     model.eval()
     device = next(model.parameters()).device
     LOG.info(f"Model loaded on device: {device}")
@@ -437,7 +449,9 @@ def model_predict(
     node_df = node_df.with_columns(pl.col(pl.Float64, pl.Float32).fill_null(0.0))
     node_df = node_df.with_columns(
         (pl.col("orphan_exp") / (pl.col("denom") + pl.col("orphan_exp"))).fill_nan(0.0).alias("orphan_prob"),
-        (-solver_config.delta_t_weight * (pl.col("delta_t").abs() - 1)).exp().alias("delta_t_weighted"),
+        (-(solver_config.delta_t_weight if solver_config is not None else 0.0) * (pl.col("delta_t").abs() - 1))
+        .exp()
+        .alias("delta_t_weighted"),
     )
 
     # Weighted average over all delta_t (give more weight to smaller delta_t)
@@ -470,6 +484,9 @@ def model_predict(
         node_ids=node_df[DataKeys.NODE_ID].to_list(),
     )
     LOG.info("Graph updated with edge similarities and node orphan probabilities")
+
+    if not solve:
+        return None
 
     LOG.info("Starting ILP tracking solver")
     # Solve tracking
@@ -576,3 +593,31 @@ def extract_edge_features(
     )
 
     return edge_df
+
+
+def predict_edge_scores(
+    model: EdgeModel, ds: Dataset | DataLoader, *, prefetch: bool | None = None
+) -> pl.DataFrame:
+    """Return parental-normalized edge probabilities without running a solver.
+
+    Parameters
+    ----------
+    model : EdgeModel
+        Pretrained or corrected HOCT model.
+    ds : Dataset
+        Prepared dataset sharing the candidate graph.
+    prefetch : bool | None
+        Whether to prefetch input batches.
+
+    Returns
+    -------
+    pl.DataFrame
+        Edge IDs and similarities in [0, 1]. The dataset graph is updated in place.
+    """
+    graph = ds.dataset.graph if isinstance(ds, DataLoader) else ds.graph
+    if graph.num_edges() == 0:
+        return pl.DataFrame(
+            {DataKeys.EDGE_ID: pl.Series([], dtype=pl.Int64), "similarity": pl.Series([], dtype=pl.Float32)}
+        )
+    model_predict(model, ds, prefetch=prefetch, solve=False)
+    return graph.edge_attrs(attr_keys=[DataKeys.EDGE_ID, "similarity"])
