@@ -8,7 +8,6 @@ import polars as pl
 import torch
 import tracksdata as td
 from tracksdata.graph._rustworkx_graph import RXFilter
-from tracksdata.utils._dataframe import unpack_array_attrs
 
 from hoct._logging import LOG
 
@@ -203,7 +202,17 @@ def item_from_filter(
         *spatial_cols,
         *properties,
     )
-    node_attrs = unpack_array_attrs(node_attrs)
+    # Flatten array-valued features in column order. Avoid arr.to_struct(callable),
+    # which recent Polars versions no longer support (tracksdata's helper uses it).
+    flat_columns = []
+    for column in node_attrs.columns:
+        values = node_attrs[column].to_numpy()
+        if values.ndim == 1:
+            flat_columns.append(node_attrs[column])
+        else:
+            values = values.reshape(len(node_attrs), -1)
+            flat_columns.extend(pl.Series(f"{column}_{i}", values[:, i]) for i in range(values.shape[1]))
+    node_attrs = pl.DataFrame(flat_columns)
 
     for col in node_attrs.columns:
         for type_of_check, check_func in [
