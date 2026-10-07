@@ -5,9 +5,10 @@ import polars as pl
 import torch
 import tracksdata as td
 from torch import nn
+from torch.utils.data import Dataset
 from tracksdata.functional import TilingScheme
 
-from hoct._api import _create_dataset
+from hoct._dataset import _create_dataset
 from hoct._logging import LOG
 from hoct.data import LabeledDataset
 from hoct.inference import EdgeModel, ModelPrediction, extract_edge_features
@@ -115,6 +116,8 @@ def fit_from_labels(
     lr: float = 0.1,
     l2_weight: float = 1.0,
     consistency_weight: float = 0.25,
+    *,
+    dataset: Dataset | None = None,
 ) -> ProbedModel:
     """
     Fit a linear probe from sparse edge corrections and return an adapted model.
@@ -159,6 +162,10 @@ def fit_from_labels(
         Weight on the ILP-consistency loss for unlabeled edges. Effective weight
         is scaled as ``consistency_weight x n_features / n_labels``. Default: 0.25.
 
+    dataset : Dataset | None
+        Optional prepared dataset sharing the graph. When provided, bypasses
+        dataset creation and its windowing/augmentation arguments.
+
     Returns
     -------
     ProbedModel
@@ -167,7 +174,8 @@ def fit_from_labels(
     backbone = model._edge_model if isinstance(model, ProbedModel) else model
     device = next(backbone.parameters()).device
 
-    dataset = _create_dataset(graph, tiling_scheme, window_size, test_time_augs)
+    if dataset is None:
+        dataset = _create_dataset(graph, tiling_scheme, window_size, test_time_augs)
     labeled_dataset = LabeledDataset(dataset, label_mask_key)
 
     # No dedup: same edge in multiple windows → multiple feature rows (windowing augmentation).
@@ -202,6 +210,9 @@ def fit_from_labels(
             "Consistency loss requested but graph has no '%s' attribute; skipping it.",
             td.DEFAULT_ATTR_KEYS.SOLUTION,
         )
+
+    if len(y) == 0:
+        raise ValueError("No labeled edges found in the correction dataset")
 
     n_features = X.shape[1]
     head = nn.Linear(n_features, 1)
